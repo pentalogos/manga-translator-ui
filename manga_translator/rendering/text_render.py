@@ -573,7 +573,9 @@ def _glyph_spec_from_selection(cdpt: str, font_size: int) -> Optional[GlyphSpec]
 
 def _glyph_spec(cdpt: str, font_size: int) -> GlyphSpec:
     state = _state()
-    key = (cdpt, int(font_size))
+    # 缓存 key 含当前主字体路径，避免切换字体后命中旧缓存
+    font_key = state.font_selection[0] if state.font_selection else ''
+    key = (cdpt, int(font_size), font_key)
     cached = _cache_get(state.glyph_specs, key)
     if cached is not None:
         return cached
@@ -776,16 +778,23 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
     if not line_text or line is None:
         return None
     path = QPainterPath()
-    for run in layout.glyphRuns():
-        string_indexes = run.stringIndexes() if hasattr(run, 'stringIndexes') else []
-        for i, (glyph_id, pos) in enumerate(zip(run.glyphIndexes(), run.positions())):
-            char = normalized[string_indexes[i]] if i < len(string_indexes) and string_indexes[i] < len(normalized) else ""
-            raw_font, glyph_id = _get_fallback_glyph(glyph_id, run.rawFont(), char, font_size)
-            
-            glyph_path = raw_font.pathForGlyph(glyph_id)
-            if not glyph_path.isEmpty():
-                glyph_path.translate(pos.x(), pos.y())
-                path.addPath(glyph_path)
+    # Qt/DirectWrite 把 family name 以 '[' 开头的字体归入同一字体集合，
+    # 导致 shaping 时 character-to-glyph 映射返回错误的 glyph_id。
+    # 修复：用 _glyph_spec 查字形路径（走 font_selection 直接加载的 QRawFont，
+    # 绕开 Qt 字体数据库），位置（pos）仍从 QTextLayout 取。
+    all_positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
+    for idx, char in enumerate(normalized):
+        if idx >= len(all_positions):
+            break
+        pos = all_positions[idx]
+        try:
+            spec = _glyph_spec(char, font_size)
+        except Exception:
+            continue
+        glyph_path = spec.raw_font.pathForGlyph(spec.glyph_id)
+        if not glyph_path.isEmpty():
+            glyph_path.translate(pos.x(), pos.y())
+            path.addPath(glyph_path)
                 
     if path.isEmpty():
         return None

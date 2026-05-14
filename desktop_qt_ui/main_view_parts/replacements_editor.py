@@ -193,12 +193,8 @@ class ReplacementsEditorPanel(QWidget):
         status_layout.setSpacing(12)
         self._status_label = QLabel("")
         self._status_label.setObjectName("page_subtitle")
-        self._file_path_label = QLabel("")
-        self._file_path_label.setObjectName("page_subtitle")
-        self._file_path_label.setStyleSheet("font-size: 11px;")
         status_layout.addWidget(self._status_label)
         status_layout.addStretch()
-        status_layout.addWidget(self._file_path_label)
         layout.addWidget(status_row)
 
         # --- 信号连接 ---
@@ -288,8 +284,6 @@ class ReplacementsEditorPanel(QWidget):
 
     def _load_data(self):
         """从 YAML 文件加载数据"""
-        self._file_path_label.setText(self._file_path)
-
         if not os.path.exists(self._file_path):
             self._set_status(self._t("File not found"), "warning")
             return
