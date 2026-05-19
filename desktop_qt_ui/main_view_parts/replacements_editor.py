@@ -475,16 +475,25 @@ class ReplacementsEditorPanel(QWidget):
         self._mark_modified()
 
     def _on_select_all(self):
-        """选中表格中所有行"""
+        """选中表格中所有行（仅限可见行）"""
         if self._mode_stack.currentIndex() == 1:
             return
         table = self._current_table()
-        table.selectAll()
+        table.blockSignals(True)
+        table.clearSelection()
+        for r in range(table.rowCount()):
+            if not table.isRowHidden(r):
+                for c in range(table.columnCount()):
+                    item = table.item(r, c)
+                    if item:
+                        item.setSelected(True)
+        table.blockSignals(False)
+        self._on_selection_changed()
 
     def _get_selected_rows(self) -> list:
-        """获取当前表格选中的行号列表"""
+        """获取当前表格中被选中且未被过滤隐藏的行号列表"""
         table = self._current_table()
-        return sorted(set(idx.row() for idx in table.selectedIndexes()))
+        return sorted(set(idx.row() for idx in table.selectedIndexes() if not table.isRowHidden(idx.row())))
 
     def _on_selection_changed(self):
         """选中行变化时，更新启用/正则按钮的文字"""
@@ -576,6 +585,7 @@ class ReplacementsEditorPanel(QWidget):
             self._move_up_button.setEnabled(False)
             self._move_down_button.setEnabled(False)
             self._select_all_button.setEnabled(False)
+            self._filter_row.setVisible(False)
         else:
             # 切换回表格模式
             raw_text = self._raw_editor.toPlainText()
@@ -608,6 +618,7 @@ class ReplacementsEditorPanel(QWidget):
             self._move_up_button.setEnabled(True)
             self._move_down_button.setEnabled(True)
             self._select_all_button.setEnabled(True)
+            self._filter_row.setVisible(True)
             self._apply_filter(self._current_table(), self._search_input.text())
 
         self._update_status()
