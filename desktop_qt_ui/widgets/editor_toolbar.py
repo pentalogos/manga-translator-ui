@@ -1,6 +1,9 @@
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QIcon, QPainter, QPen, QPixmap, QBrush
+import os
+
+from PyQt6.QtCore import QByteArray, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QIcon, QPainter, QPalette, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -150,121 +153,43 @@ class EditorToolbar(QWidget):
         layout.addStretch() # Pushes everything to the left
 
     # ------------------------------------------------------------------
-    # 图标工厂 — QPainter 绘制 PS 风格对齐/分布图标 (24×24)
-    # ------------------------------------------------------------------
-    _ICON_SZ = 28
-
-    @staticmethod
-    def _make_align_icon(mode: str, rect_color: QColor, line_color: QColor) -> QIcon:
-        """绘制对齐图标（28×28）。视觉重心居中。"""
-        s = 28
-        px = QPixmap(s, s)
-        px.fill(Qt.GlobalColor.transparent)
-        p = QPainter(px)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        sr = 8
-        lr = 13
-        rt = 5
-        gap = 6     # 短/长方块宽、厚度、间距
-        is_horiz = mode in ("left", "horizontal_center", "right")
-        line_pen = QPen(line_color, 2)
-        # 以 bx = 所有元素视觉包围盒中心的 x 坐标为准，让 bx == s/2
-        if is_horiz:
-            if mode == "left":
-                bx = 7 + lr / 2            # ≈ 13.5，配 guide_x=7
-                guide_x = 7
-            elif mode == "horizontal_center":
-                guide_x = s // 2
-                bx = s // 2
-            else:
-                guide_x = s - 7
-                bx = guide_x - lr / 2      # ≈ 14.5
-            dx = s // 2 - bx               # 把包围盒平移到正中央
-            guide_x += dx
-            sr_y = (s - rt * 2 - gap) // 2
-            lr_y = sr_y + rt + gap
-            p.setPen(line_pen)
-            p.drawLine(int(guide_x), 5, int(guide_x), s - 5)
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
-            if mode == "left":
-                p.drawRect(int(guide_x), sr_y, sr, rt)
-                p.drawRect(int(guide_x), lr_y, lr, rt)
-            elif mode == "horizontal_center":
-                p.drawRect(int(guide_x - sr // 2), sr_y, sr, rt)
-                p.drawRect(int(guide_x - lr // 2), lr_y, lr, rt)
-            else:
-                p.drawRect(int(guide_x - sr), sr_y, sr, rt)
-                p.drawRect(int(guide_x - lr), lr_y, lr, rt)
-        else:
-            if mode == "top":
-                by = 7 + lr / 2            # ≈ 13.5
-                guide_y = 7
-            elif mode == "vertical_center":
-                guide_y = s // 2
-                by = s // 2
-            else:
-                guide_y = s - 7
-                by = guide_y - lr / 2      # ≈ 14.5
-            dy = s // 2 - by
-            guide_y += dy
-            sr_x = (s - rt * 2 - gap) // 2
-            lr_x = sr_x + rt + gap
-            p.setPen(line_pen)
-            p.drawLine(5, int(guide_y), s - 5, int(guide_y))
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
-            if mode == "top":
-                p.drawRect(sr_x, int(guide_y), rt, sr)
-                p.drawRect(lr_x, int(guide_y), rt, lr)
-            elif mode == "vertical_center":
-                p.drawRect(sr_x, int(guide_y - sr // 2), rt, sr)
-                p.drawRect(lr_x, int(guide_y - lr // 2), rt, lr)
-            else:
-                p.drawRect(sr_x, int(guide_y - sr), rt, sr)
-                p.drawRect(lr_x, int(guide_y - lr), rt, lr)
-        p.end()
-        return QIcon(px)
-
-    @staticmethod
-    def _make_dist_spacing_icon(orientation: str, rect_color: QColor, line_color: QColor) -> QIcon:
-        """绘制间距分布图标（28×28）。"""
-        s = 28
-        px = QPixmap(s, s)
-        px.fill(Qt.GlobalColor.transparent)
-        p = QPainter(px)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        m = 4
-        th = 10
-        line_pen = QPen(line_color, 2)
-        if orientation == "vertical":
-            p.setPen(line_pen); p.drawLine(m, m, s - m, m); p.drawLine(m, s - m, s - m, s - m)
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
-            p.drawRect(m + 2, s // 2 - th // 2, s - (m + 2) * 2, th)
-        else:
-            p.setPen(line_pen); p.drawLine(m, m, m, s - m); p.drawLine(s - m, m, s - m, s - m)
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
-            p.drawRect(s // 2 - th // 2, m + 2, th, s - (m + 2) * 2)
-        p.end()
-        return QIcon(px)
-
-    def _icon_colors(self):
-        """从当前主题取色，返回 (rect_color, line_color, dot_color)。"""
-        from PyQt6.QtGui import QPalette
-        pal = self.palette()
-        text_c = pal.color(QPalette.ColorRole.Text)
-        # guideline: 使用主题 accent 色，默认 #5599ff
-        line_c = QColor("#5599ff")
-        # 更多按钮圆点: 用 muted text
-        dot_c = text_c.darker(150)
-        return text_c, line_c, dot_c
-
-    # ------------------------------------------------------------------
     # 对齐/分布 UI — 单行 PS 风格布局
     # ------------------------------------------------------------------
+
+    _ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "styles", "icons")
+
+    def _themed_icon(self, svg_name: str) -> QIcon:
+        """读 SVG 模板,把占位符颜色替换为主题色后渲染为 QIcon。
+
+        SVG 用 `#5599ff` 作参考线占位符,`#888888` 作矩形占位符。
+        线色取主题强调色,矩形色取主题文字色,跟主题切换。
+        """
+        pal = self.palette()
+        rect_color = pal.color(QPalette.ColorRole.Text).name()
+        accent = pal.color(QPalette.ColorRole.Highlight)
+        # accent 太暗/太亮时退回固定蓝
+        if accent.lightness() < 60 or accent.lightness() > 230:
+            line_color = "#5599ff"
+        else:
+            line_color = accent.name()
+        path = os.path.join(self._ICONS_DIR, svg_name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                svg_text = f.read()
+        except OSError:
+            return QIcon()
+        svg_text = svg_text.replace("#5599ff", line_color).replace("#888888", rect_color)
+        renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+        pixmap = QPixmap(28, 28)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
 
     def _build_align_distribute_ui(self, layout: QHBoxLayout):
         """构建对齐/分布按钮组：单行 PS 风格。"""
         BTN_W = 28
-        rc, lc, dc = self._icon_colors()
 
         def _make_icon_btn(icon, obj_name, tip):
             btn = QPushButton()
@@ -300,20 +225,20 @@ class EditorToolbar(QWidget):
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_layout.setSpacing(10)
 
-        # ── 第 1 组 (4 按钮): 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
+        # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
         self.align_buttons: dict[str, QToolButton] = {}
         group1 = [
             ("left", "左对齐"), ("horizontal_center", "水平居中"),
             ("right", "右对齐"),
         ]
         for mode, tip in group1:
-            icon = self._make_align_icon(mode, rc, lc)
+            icon = self._themed_icon(f"align_{mode}.svg")
             btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        icon = self._make_dist_spacing_icon("vertical", rc, lc)
+        icon = self._themed_icon("distribute_spacing_v.svg")
         btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", "垂直间距分布")
         btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
         self._dist_v_btn = btn
@@ -325,13 +250,13 @@ class EditorToolbar(QWidget):
             ("bottom", "底对齐"),
         ]
         for mode, tip in group2:
-            icon = self._make_align_icon(mode, rc, lc)
+            icon = self._themed_icon(f"align_{mode}.svg")
             btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        icon = self._make_dist_spacing_icon("horizontal", rc, lc)
+        icon = self._themed_icon("distribute_spacing_h.svg")
         btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", "水平间距分布")
         btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
         self._dist_h_btn = btn
