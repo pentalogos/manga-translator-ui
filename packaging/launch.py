@@ -613,10 +613,6 @@ def detect_gpu():
         print('=' * 55)
         print('')
         
-        options = []
-        for gpu_type, gpu_name in all_gpus:
-            options.append((gpu_type, gpu_name))
-        
         for idx, (gpu_type, gpu_name) in enumerate(options, 1):
             hint = ''
             if gpu_type == 'NVIDIA':
