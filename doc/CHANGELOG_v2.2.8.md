@@ -71,3 +71,4 @@
 - 修复 `apply_white_frame_center` 写盘时只移动 `center` 而 `white_frame_rect_local` / `render_box_rect_local` 不同步平移，导致下次打开 JSON 看到区域位置漂移的问题。
 - 修复并行模式修复线程使用未过滤 `text_regions` 的问题：翻译过滤后对比原始/过滤后 region 集合，有差异则触发修复重做（基于过滤后的 regions 重新生成 mask 并修复），避免被过滤掉的框在最终图上留下空白补丁。
 - 修复关闭超分/上色后重跑，旧 `editor_base` 底图仍被编辑器加载的问题：JSON 缺少 `upscale_ratio` / `colorizer` 时视为过期，删除残留并回退原图。
+- 修复调大字间距时中文省略号 `……` 被拆开拉宽的问题：横排保持省略号内部点距，竖排按替换规则归一为竖省略号并复用既有省略号间距计算。

@@ -20,6 +20,7 @@ from .text_render import (
     get_char_offset_y,
     get_vertical_char_bitmap_width,
     get_string_width,
+    normalize_vertical_ellipsis_text,
     select_hyphenator,
 )
 from ..utils.textblock import LANGUAGE_ORIENTATION_PRESETS
@@ -166,6 +167,7 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
 
     返回 (line_text_list, line_height_list)
     """
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     text = _BR_RE.sub('\n', text)
 
     line_text_list: List[str] = []
@@ -244,6 +246,7 @@ def _vert_line_width(line_text: str, font_size: int) -> int:
 
 def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spacing: float = 1.0) -> int:
     """不换行时竖排文本的总高度，考虑 <H> 块。"""
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     text = _BR_RE.sub('', text)
     total = 0
     for part in _H_BLOCK_RE.split(text):

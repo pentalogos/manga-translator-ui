@@ -119,6 +119,14 @@ def compact_special_symbols(text: str, *, convert_ascii_ellipsis: bool = True) -
     return re.sub(r'\.{3,}', _compact_period_run, text)
 
 
+def normalize_vertical_ellipsis_text(text: str) -> str:
+    text = text or ''
+    text = text.replace('……', '⋮')
+    text = text.replace('…', '⋮')
+    text = text.replace('⋯', '︙')
+    return text
+
+
 def auto_add_horizontal_tags(text: str) -> str:
     if not text or '<H>' in text or '<h>' in text.lower():
         return text
@@ -776,6 +784,46 @@ def _line_logical_width(line, text_length: int) -> float:
     return float(cursor_x[0] if isinstance(cursor_x, tuple) else cursor_x)
 
 
+def _sorted_glyph_positions(layout, reversed_direction: bool):
+    positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
+    positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
+    return positions
+
+
+def _horizontal_ellipsis_tracking_offsets(
+    text: str,
+    font_size: int,
+    letter_spacing: float,
+    positions: list,
+    reversed_direction: bool = False,
+) -> list:
+    if reversed_direction or _normalize_letter_spacing(letter_spacing) == 1.0 or '……' not in (text or ''):
+        return [0.0] * len(positions)
+    _, _, base_layout, _ = _horizontal_line(text, font_size, 1.0)
+    if base_layout is None:
+        return [0.0] * len(positions)
+    base_positions = _sorted_glyph_positions(base_layout, False)
+    limit = min(len(text), len(positions), len(base_positions))
+    offsets = [0.0] * len(positions)
+    idx = 0
+    while idx < limit:
+        if text[idx] != '…':
+            idx += 1
+            continue
+        run_start = idx
+        while idx < limit and text[idx] == '…':
+            idx += 1
+        if idx - run_start < 2:
+            continue
+        start_spaced_x = positions[run_start].x()
+        start_base_x = base_positions[run_start].x()
+        for run_idx in range(run_start + 1, idx):
+            spaced_delta = positions[run_idx].x() - start_spaced_x
+            base_delta = base_positions[run_idx].x() - start_base_x
+            offsets[run_idx] = spaced_delta - base_delta
+    return offsets
+
+
 def _line_metrics(text: str, font_size: int, letter_spacing: float = 1.0) -> dict:
     normalized, qfont, _, line = _horizontal_line(text, font_size, letter_spacing)
     metrics = QFontMetricsF(qfont)
@@ -807,15 +855,22 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
     if not line_text or line is None:
         return None
     path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
     # Qt/DirectWrite 把 family name 以 '[' 开头的字体归入同一字体集合，
     # 导致 shaping 时 character-to-glyph 映射返回错误的 glyph_id。
     # 修复：用 _glyph_spec 查字形路径（走 font_selection 直接加载的 QRawFont，
     # 绕开 Qt 字体数据库），位置（pos）仍从 QTextLayout 取。
-    all_positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
     # glyphRuns() 返回的 run 顺序不保证与字符串字符顺序一致（混合脚本时
     # 如 CJK + ASCII 会分成多个 run，run 顺序不定），按 x 坐标排序以
     # 确保位置与字符的逻辑顺序匹配
-    all_positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
+    all_positions = _sorted_glyph_positions(layout, reversed_direction)
+    position_offsets = _horizontal_ellipsis_tracking_offsets(
+        normalized,
+        font_size,
+        letter_spacing,
+        all_positions,
+        reversed_direction,
+    )
     for idx, char in enumerate(normalized):
         if idx >= len(all_positions):
             break
@@ -826,7 +881,8 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
             continue
         glyph_path = spec.raw_font.pathForGlyph(spec.glyph_id)
         if not glyph_path.isEmpty():
-            glyph_path.translate(pos.x(), pos.y())
+            offset_x = position_offsets[idx] if idx < len(position_offsets) else 0.0
+            glyph_path.translate(pos.x() - offset_x, pos.y())
             path.addPath(glyph_path)
                 
     if path.isEmpty():
@@ -907,7 +963,7 @@ def _bitmap_ink_rect(bitmap: Optional[np.ndarray]) -> Optional[Tuple[int, int, i
 
 
 def _is_vertical_ellipsis_char(cdpt: str) -> bool:
-    return cdpt in ('︙', '⋯', '…')
+    return cdpt in ('︙', '⋮', '⋯', '…')
 
 
 def _estimate_ellipsis_gap(bitmap_char: np.ndarray) -> Optional[float]:
@@ -1010,6 +1066,7 @@ def get_char_offset_y(font_size: int, cdpt: str, letter_spacing: float = 1.0):
 
 
 def get_string_height(font_size: int, text: str, letter_spacing: float = 1.0):
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     total = 0
     for part in _H_BLOCK_RE.split(re.sub(r'\s*(?:\[BR\]|<br>|【BR】)\s*', '', text or '', flags=re.IGNORECASE)):
         if not part:
@@ -1142,7 +1199,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
 
 
 def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tuple[int, int, int], bg: Optional[Tuple[int, int, int]], line_spacing: int, config=None, region_count: int = 1, stroke_width: float = None, letter_spacing: float = 1.0):
-    text = compact_special_symbols(text).replace('…', '︙')
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     if not text:
         return None
     _ = (h, region_count)
