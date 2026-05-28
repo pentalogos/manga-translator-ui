@@ -26,8 +26,7 @@ _DEFAULT_REPLACEMENTS_PATH = os.path.join(BASE_PATH, 'examples', 'text_replaceme
 _replacements_cache: Dict[str, Tuple[float, dict]] = {}
 
 
-_DEFAULT_REPLACEMENTS_YAML = """\
-# 文本替换规则配置
+_DEFAULT_REPLACEMENTS_YAML = r"""# 文本替换规则配置
 # 在渲染前应用到译文字段，按顺序执行
 # 支持三种分组：horizontal（横排时）、vertical（竖排时）、common（通用，始终执行）
 #

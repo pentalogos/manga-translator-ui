@@ -671,6 +671,11 @@ class MangaTranslator:
         try:
             overwrite = save_info.get('overwrite', True)
             final_output_path = self._calculate_output_path(ctx.image_name, save_info)
+            # 记录本次输出目录，供 _save_text_to_file 写入 JSON，供编辑器后续导出时回写到同一位置
+            try:
+                ctx.final_output_dir = os.path.dirname(final_output_path)
+            except Exception:
+                pass
             success = self._save_translated_image(
                 ctx.result,
                 final_output_path,
@@ -898,6 +903,24 @@ class MangaTranslator:
                 data_to_save['mask_is_refined'] = mask_is_refined
             except Exception as e:
                 logger.error(f"Failed to encode mask to base64: {e}")
+
+        # 记录本次主翻译流程的输出目录，编辑器再次导出时回写到原目录
+        final_output_dir = getattr(ctx, 'final_output_dir', None)
+        if final_output_dir:
+            data_to_save['last_export_dir'] = final_output_dir
+        elif os.path.exists(text_output_file):
+            # 本轮没有写图（例如仅导出 JSON 模式），保留已有的 last_export_dir
+            try:
+                with open(text_output_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                if existing_data and len(existing_data.values()) > 0:
+                    existing_image_data = next(iter(existing_data.values()))
+                    if isinstance(existing_image_data, dict):
+                        preserved_dir = existing_image_data.get('last_export_dir')
+                        if preserved_dir:
+                            data_to_save['last_export_dir'] = preserved_dir
+            except Exception as e:
+                logger.debug(f"Failed to preserve last_export_dir from existing JSON {text_output_file}: {e}")
 
         data[image_key] = data_to_save
 
