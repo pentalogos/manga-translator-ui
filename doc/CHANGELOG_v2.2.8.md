@@ -79,3 +79,6 @@
 - 修复并行模式修复线程使用未过滤 `text_regions` 的问题：翻译过滤后对比原始/过滤后 region 集合，有差异则触发修复重做（基于过滤后的 regions 重新生成 mask 并修复），避免被过滤掉的框在最终图上留下空白补丁。
 - 修复关闭超分/上色后重跑，旧 `editor_base` 底图仍被编辑器加载的问题：JSON 缺少 `upscale_ratio` / `colorizer` 时视为过期，删除残留并回退原图。
 - 修复调大字间距时中文省略号 `……` 被拆开拉宽的问题：横排保持省略号内部点距，竖排按替换规则归一为竖省略号并复用既有省略号间距计算。
+- 修复自动生成的 `text_replacements.yaml` 含控制字符导致加载失败。
+- 修复并发流水线下选择上色器报 `got multiple values for keyword argument 'config'`。
+- 修复导入配置后超分倍率显示错乱（null 被显示成 ×4）。

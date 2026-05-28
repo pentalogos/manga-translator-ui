@@ -1566,8 +1566,6 @@ class MangaTranslator:
     async def _run_colorizer(self, config: Config, ctx: Context):
         current_time = time.time()
         self._model_usage_timestamps[("colorizer", config.colorizer.colorizer)] = current_time
-        colorizer_kwargs = dict(ctx)
-        colorizer_kwargs["colorizer_history_images"] = self._get_colorizer_history_images(config)
 
         result = await dispatch_colorization(
             config.colorizer.colorizer,
@@ -1576,7 +1574,7 @@ class MangaTranslator:
             device=self.device,
             image=ctx.input,
             config=config,
-            **colorizer_kwargs
+            colorizer_history_images=self._get_colorizer_history_images(config),
         )
         self._append_colorizer_history_image(config, result)
         return result
