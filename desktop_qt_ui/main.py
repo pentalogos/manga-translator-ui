@@ -156,6 +156,30 @@ def _apply_windows_native_window_icon(window, icon_path: str):
         logging.exception("设置 Windows 原生窗口图标失败")
     return False
 
+
+def _apply_macos_native_app_icon(icon_path: str):
+    """为 macOS Dock/原生应用层设置 .icns 图标。"""
+    if not icon_path:
+        return False
+
+    try:
+        from AppKit import NSApplication, NSImage
+
+        image = NSImage.alloc().initWithContentsOfFile_(icon_path)
+        if not image:
+            logging.warning(f"macOS 原生应用图标加载失败: {icon_path}")
+            return False
+
+        NSApplication.sharedApplication().setApplicationIconImage_(image)
+        logging.info(f"macOS 原生应用图标已设置: {icon_path}")
+        return True
+    except ImportError:
+        logging.info("未安装 PyObjC/AppKit，跳过 macOS 原生 Dock 图标设置")
+    except Exception:
+        logging.exception("设置 macOS 原生应用图标失败")
+    return False
+
+
 def main():
     """
     应用主入口
@@ -307,6 +331,7 @@ def main():
     
     app_icon = None
     native_windows_icon_path = None
+    native_macos_icon_path = None
 
     icon_candidates = []
     if sys.platform == 'darwin':
@@ -327,6 +352,16 @@ def main():
         logging.info(f"UI 图标加载成功: {icon_source}")
     else:
         logging.warning("UI 图标加载失败：未找到可用的 icon.ico/icon.png/icon.icns")
+
+    if sys.platform == 'darwin':
+        native_macos_icon_path = next(
+            iter_existing_resource_paths([os.path.join('doc', 'images', 'icon.icns')]),
+            None,
+        )
+        if native_macos_icon_path:
+            _apply_macos_native_app_icon(native_macos_icon_path)
+        else:
+            logging.warning("macOS 原生应用图标未找到：doc/images/icon.icns")
 
     if sys.platform == 'win32':
         native_windows_icon_path = next(

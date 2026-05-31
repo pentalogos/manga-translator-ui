@@ -206,50 +206,49 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 > 📖 **详细安装教程**：[安装指南](doc/INSTALLATION.md)  
 > 📖 **使用教程**：[命令行使用指南](doc/CLI_USAGE.md)
 
-#### 方式五：macOS 原生运行 (Apple Silicon)
+#### 方式五：macOS
 
-专为 M1/M2/M3/M4 Mac 优化的原生运行方式，支持 MPS (Metal Performance Shaders) GPU 加速。
+适用于 macOS 12 或更高版本。Apple Silicon 会使用 Metal/MPS 加速；Intel Mac 会使用 CPU 依赖。
 
-**快速开始（推荐）**：
+**快速安装**：
 
-1. **下载安装脚本**：
-   ```bash
-   curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
-   chmod +x macOS_1_首次安装.sh
-   ```
-
-2. **运行安装**：
-   ```bash
-   ./macOS_1_首次安装.sh
-   ```
-   脚本会自动完成：
-   - 检查并安装必要组件（Xcode 命令行工具、Git）
-   - 克隆项目代码
-   - 安装 Miniforge 和 Python 环境
-   - 配置 MPS GPU 加速支持
-
-3. **启动程序**：
-   ```bash
-   ./macOS_2_启动Qt界面.sh
-   ```
-
-4. **后续更新**：
-   ```bash
-   ./macOS_4_更新维护.sh
-   ```
-
-**或者手动克隆**：
 ```bash
-git clone https://github.com/hgmzhn/manga-translator-ui.git
+mkdir -p ~/manga-translator-ui
+cd ~/manga-translator-ui
+
+curl -L -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
+chmod +x macOS_1_首次安装.sh
+./macOS_1_首次安装.sh
+```
+
+> 安装脚本会检查 Xcode Command Line Tools、Git 和 Conda；没有项目代码时会克隆仓库；没有可用 Conda 时会安装 Miniforge。若系统 Conda 的环境目录不可写，脚本会改用项目目录下的 `conda_env`。
+
+**已有仓库时安装依赖**：
+
+```bash
 cd manga-translator-ui
 chmod +x macOS_*.sh
 ./macOS_1_首次安装.sh
 ```
 
-> ⚠️ **注意**：
-> - 优先支持 Apple Silicon (M1/M2/M3/M4) 芯片
-> - Intel Mac 也可运行，但会使用 CPU 模式
-> - 首次安装需要下载约 2GB 的依赖包，请确保网络畅通
+**启动程序**：
+
+```bash
+./macOS_2_启动Qt界面.sh
+```
+
+**检查更新提示并启动**：
+
+```bash
+./macOS_3_检查更新并启动.sh
+```
+
+**更新维护**：
+
+```bash
+./macOS_4_更新维护.sh
+```
+
 
 
 ---

@@ -90,6 +90,10 @@ websockets==14.2
 
 # xformers 不支持 macOS，已移除
 # xformers - CUDA only, not needed for MPS
+
+# macOS 原生 Dock 图标支持（AppKit）
+pyobjc-framework-Cocoa>=10.0
+
 anyio>=4.8.0
 google-genai==1.57.0
 torchsummary
