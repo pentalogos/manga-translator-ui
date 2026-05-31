@@ -501,7 +501,7 @@ def detect_gpu():
     
     支持双显卡笔记本（如 NVIDIA 独显 + AMD 核显）：
     - 先列出所有检测到的显卡
-    - 如果检测到多种类型，让用户选择使用哪张
+    - 如果检测到多张显卡，让用户选择使用哪张
     - 每张显卡的类型和名称严格对应，不会张冠李戴
     """
     
@@ -528,11 +528,49 @@ def detect_gpu():
             line = line.strip()
             if not line or line.startswith('NAME') or line.startswith('---'):
                 continue
+            if 'REG_SZ' in line:
+                line = line.split('REG_SZ', 1)[1].strip()
             gpu_type = classify_gpu_line(line)
             if gpu_type and line not in seen_names:
                 results.append((gpu_type, line))
                 seen_names.add(line)
         return results
+
+    def normalize_gpu_name(gpu_name):
+        """标准化显卡名称，用于跨检测方式去重。"""
+        return ' '.join((gpu_name or '').strip().split()).upper()
+
+    def add_gpu_results(all_gpus, gpu_results):
+        """合并多种检测方式的结果，避免第一个 API 只返回核显。"""
+        seen_names = {normalize_gpu_name(name) for _, name in all_gpus}
+        for gpu_type, gpu_name in gpu_results:
+            key = normalize_gpu_name(gpu_name)
+            if key and key not in seen_names:
+                all_gpus.append((gpu_type, gpu_name))
+                seen_names.add(key)
+
+    def is_integrated_gpu(gpu_type, gpu_name):
+        """判断是否为核显/低性能显示适配器。"""
+        upper = (gpu_name or '').upper()
+
+        # 先排除常见独显标记，避免把 "Radeon RX ... Graphics" 误判为核显。
+        discrete_markers = [
+            ' RX ', 'RX ', 'RADEON PRO', 'PRO W', 'MI300', 'MI350',
+            'GEFORCE', 'RTX', 'GTX', 'QUADRO', 'TESLA', 'ARC A', 'ARC B',
+        ]
+        if any(marker in upper for marker in discrete_markers):
+            return False
+
+        if gpu_type == 'AMD':
+            return any(kw in upper for kw in [
+                'RADEON(TM) GRAPHICS',
+                'AMD RADEON(TM) GRAPHICS',
+                'AMD RADEON GRAPHICS',
+                'RADEON GRAPHICS',
+            ])
+        if gpu_type == 'Intel':
+            return 'ARC' not in upper
+        return 'BASIC DISPLAY ADAPTER' in upper
     
     def check_nvidia_cuda_version():
         """检查 NVIDIA CUDA 驱动版本"""
@@ -563,29 +601,43 @@ def detect_gpu():
             return None, None, None
     
     def prompt_user_choose_gpu(all_gpus):
-        """当检测到多种类型的显卡时，让用户选择使用哪张
+        """当检测到多张显卡时，让用户选择使用哪张
         
         Args:
             all_gpus: [(type, name), ...] 列表
         Returns:
             (gpu_type, gpu_name) 用户选择的显卡
         """
-        # 按类型分组去重
-        type_map = {}  # type -> [names]
-        for gpu_type, gpu_name in all_gpus:
-            if gpu_type not in type_map:
-                type_map[gpu_type] = []
-            type_map[gpu_type].append(gpu_name)
-        
-        unique_types = list(type_map.keys())
-        
-        # 只有一种类型，直接返回第一个
-        if len(unique_types) <= 1:
+        # 只有一张显卡，直接返回
+        if len(all_gpus) <= 1:
             return all_gpus[0]
         
         options = []
         for gpu_type, gpu_name in all_gpus:
             options.append((gpu_type, gpu_name))
+
+        def get_gpu_priority(gpu_info):
+            gpu_type, gpu_name = gpu_info
+            if gpu_type == 'NVIDIA':
+                return 400
+            if gpu_type == 'AMD':
+                detected_gfx, _, has_torch = detect_amd_gfx_version(gpu_name)
+                if has_torch:
+                    return 350
+                if not is_integrated_gpu(gpu_type, gpu_name):
+                    return 250
+                return 100
+            if gpu_type == 'Intel':
+                return 180 if not is_integrated_gpu(gpu_type, gpu_name) else 80
+            return 0
+
+        default_idx = 1
+        max_priority = -1
+        for idx, gpu_info in enumerate(options, 1):
+            priority = get_gpu_priority(gpu_info)
+            if priority > max_priority:
+                max_priority = priority
+                default_idx = idx
             
         # 检查是否配置了环境变量来跳过手动选择
         env_choice = os.environ.get('MANGAT_SELECTED_GPU')
@@ -598,40 +650,49 @@ def detect_gpu():
                     selected = options[choice_idx - 1]
                     print(f"检测到环境变量 MANGAT_SELECTED_GPU={env_choice}，已自动选择显卡: {selected[1]}")
                     return selected
-            # 2. 尝试匹配显卡类型 (如 "NVIDIA", "AMD")
-            for gpu_type, gpu_name in options:
-                if gpu_type.upper() == env_choice:
-                    print(f"检测到环境变量 MANGAT_SELECTED_GPU={env_choice}，已自动选择显卡: {gpu_name}")
-                    return gpu_type, gpu_name
+            # 2. 尝试匹配显卡类型 (如 "NVIDIA", "AMD")。同类型多卡时选优先级最高的。
+            type_matches = [
+                (gpu_type, gpu_name)
+                for gpu_type, gpu_name in options
+                if gpu_type.upper() == env_choice
+            ]
+            if type_matches:
+                selected = max(type_matches, key=get_gpu_priority)
+                print(f"检测到环境变量 MANGAT_SELECTED_GPU={env_choice}，已自动选择显卡: {selected[1]}")
+                return selected
             # 3. 尝试模糊匹配显卡名称 (如 "4070", "780M")
             for gpu_type, gpu_name in options:
                 if env_choice in gpu_name.upper():
                     print(f"检测到环境变量 MANGAT_SELECTED_GPU={env_choice}，已自动选择显卡: {gpu_name}")
                     return gpu_type, gpu_name
         
-        # 多种类型，提示用户选择
+        # 多张显卡，提示用户选择
         print('')
         print('=' * 55)
-        print('检测到多张不同类型的显卡')
+        print('检测到多张显卡')
         print('=' * 55)
         print('')
         
         for idx, (gpu_type, gpu_name) in enumerate(options, 1):
-            hint = ''
+            hint_parts = []
             if gpu_type == 'NVIDIA':
-                hint = ' (CUDA, 推荐)'
+                hint_parts.append('CUDA')
             elif gpu_type == 'AMD':
-                hint = ' (ROCm, 实验性)'
+                detected_gfx, _, has_torch = detect_amd_gfx_version(gpu_name)
+                if has_torch:
+                    hint_parts.append('ROCm 支持')
+                else:
+                    hint_parts.append('ROCm 未确认')
             elif gpu_type == 'Intel':
-                hint = ' (支持有限)'
+                hint_parts.append('支持有限')
+
+            if is_integrated_gpu(gpu_type, gpu_name):
+                hint_parts.append('核显/低性能')
+            if idx == default_idx:
+                hint_parts.append('推荐')
+
+            hint = f" ({', '.join(hint_parts)})" if hint_parts else ''
             print(f'  [{idx}] {gpu_name}{hint}')
-        
-        # 默认选择 NVIDIA（如果有的话）
-        default_idx = 1
-        for idx, (gpu_type, _) in enumerate(options, 1):
-            if gpu_type == 'NVIDIA':
-                default_idx = idx
-                break
         
         print('')
         print(f'  默认选择: [{default_idx}]')
@@ -658,36 +719,33 @@ def detect_gpu():
             try:
                 cmd = 'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"'
                 output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
-                all_gpus = parse_all_gpus(output)
+                add_gpu_results(all_gpus, parse_all_gpus(output))
             except Exception:
                 pass
             
             # 方法2: 尝试 wmic（经典方法，兼容老系统）
-            if not all_gpus:
-                try:
-                    cmd = 'wmic path win32_VideoController get name'
-                    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
-                    all_gpus = parse_all_gpus(output)
-                except Exception:
-                    pass
+            try:
+                cmd = 'wmic path win32_VideoController get name'
+                output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
+                add_gpu_results(all_gpus, parse_all_gpus(output))
+            except Exception:
+                pass
             
             # 方法3: 尝试 PowerShell Get-WmiObject（更老的 PowerShell）
-            if not all_gpus:
-                try:
-                    cmd = 'powershell -NoProfile -Command "Get-WmiObject Win32_VideoController | Select-Object -ExpandProperty Name"'
-                    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
-                    all_gpus = parse_all_gpus(output)
-                except Exception:
-                    pass
+            try:
+                cmd = 'powershell -NoProfile -Command "Get-WmiObject Win32_VideoController | Select-Object -ExpandProperty Name"'
+                output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
+                add_gpu_results(all_gpus, parse_all_gpus(output))
+            except Exception:
+                pass
             
             # 方法4: 尝试读取注册表（最底层的方法）
-            if not all_gpus:
-                try:
-                    cmd = 'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0000" /v DriverDesc'
-                    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
-                    all_gpus = parse_all_gpus(output)
-                except Exception:
-                    pass
+            try:
+                cmd = 'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}" /s /v DriverDesc'
+                output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
+                add_gpu_results(all_gpus, parse_all_gpus(output))
+            except Exception:
+                pass
             
             # 方法5: 尝试使用 wmi Python 库（需要额外安装，作为最后备选）
             if not all_gpus:
@@ -716,14 +774,11 @@ def detect_gpu():
             
             # 处理检测结果
             if all_gpus:
-                # 检查是否有多种类型的显卡
-                unique_types = set(t for t, _ in all_gpus)
-                
-                if len(unique_types) > 1:
-                    # 多种类型：让用户选择
+                if len(all_gpus) > 1:
+                    # 多张显卡：让用户选择
                     gpu_type, gpu_name = prompt_user_choose_gpu(all_gpus)
                 else:
-                    # 单一类型：直接使用第一个
+                    # 单张显卡：直接使用第一个
                     gpu_type, gpu_name = all_gpus[0]
                 
                 # 如果选择了 NVIDIA，补充 CUDA 信息
@@ -788,8 +843,7 @@ def detect_gpu():
                     pass
             
             if all_gpus:
-                unique_types = set(t for t, _ in all_gpus)
-                if len(unique_types) > 1:
+                if len(all_gpus) > 1:
                     gpu_type, gpu_name = prompt_user_choose_gpu(all_gpus)
                 else:
                     gpu_type, gpu_name = all_gpus[0]
@@ -1426,7 +1480,15 @@ except:
     if not need_reinstall:
         # 检测当前安装的 PyTorch 类型
         installed_pytorch_type, installed_detail = detect_installed_pytorch_version()
-        target_type = "GPU" if "gpu" in requirements_file.lower() else "CPU"
+        requirements_lower = requirements_file.lower()
+        if "amd" in requirements_lower:
+            target_type = "AMD"
+        elif "metal" in requirements_lower:
+            target_type = "Metal"
+        elif "gpu" in requirements_lower:
+            target_type = "GPU"
+        else:
+            target_type = "CPU"
         
         if installed_pytorch_type is not None and installed_pytorch_type != target_type:
             print('\n' + '=' * 50)
