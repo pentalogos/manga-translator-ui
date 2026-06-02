@@ -68,8 +68,16 @@ ensure_safe_install_dir() {
     local entry
     local name
 
-    if project_present || [ -d "$SCRIPT_DIR/.git" ] || [ -d "$SCRIPT_DIR/Miniforge3" ] || [ -d "$SCRIPT_DIR/Miniconda3" ]; then
+    if project_present; then
         return 0
+    fi
+
+    if [ -d "$SCRIPT_DIR/.git" ]; then
+        local remote_url
+        remote_url="$(git -C "$SCRIPT_DIR" config --get remote.origin.url || true)"
+        if [[ "$remote_url" == *manga-translator-ui* ]]; then
+            return 0
+        fi
     fi
 
     for entry in "$SCRIPT_DIR"/* "$SCRIPT_DIR"/.[!.]* "$SCRIPT_DIR"/..?*; do
